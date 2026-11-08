@@ -1,0 +1,73 @@
+name: Publicar versión
+
+# Para sacar una versión nueva:   git tag v2.1.0 && git push origin v2.1.0
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04   # glibc antigua = funciona en más distros
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 \
+            libegl1 libgl1 libfuse2 desktop-file-utils zsync
+
+      - name: Poner versión y repositorio
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="0.0.0-dev"
+          sed -i "s/^__version__ = .*/__version__ = \"${VERSION}\"/" fecs/__init__.py
+          sed -i "s#OWNER/REPO#${GITHUB_REPOSITORY}#" fecs/updater.py install.sh
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Compilar con PyInstaller
+        run: |
+          pip install pyinstaller PyQt6
+          pyinstaller --noconfirm --name fecs-store --windowed \
+            --add-data "styles.qss:." main.py
+          # PyInstaller en modo --windowed crea dist/fecs-store/ (onedir)
+
+      - name: Armar AppImage
+        run: |
+          mkdir -p AppDir/usr/lib
+          cp -r dist/fecs-store AppDir/usr/lib/fecs-store
+          cp packaging/AppRun AppDir/AppRun
+          cp packaging/fecs-store.desktop AppDir/fecs-store.desktop
+          cp packaging/fecs-store.png AppDir/fecs-store.png
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run \
+            -u "gh-releases-zsync|${GITHUB_REPOSITORY_OWNER}|${GITHUB_REPOSITORY#*/}|latest|Fecs_Store-*x86_64.AppImage.zsync" \
+            AppDir "Fecs_Store-${VERSION}-x86_64.AppImage"
+          sha256sum "Fecs_Store-${VERSION}-x86_64.AppImage" | awk '{print $1}' > "Fecs_Store-${VERSION}-x86_64.AppImage.sha256"
+
+      - name: Probar que arranca
+        run: |
+          chmod +x Fecs_Store-*.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 QT_QPA_PLATFORM=offscreen \
+            ./Fecs_Store-${VERSION}-x86_64.AppImage --version
+
+      - name: Publicar en Releases
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            Fecs_Store-*.AppImage
+            Fecs_Store-*.AppImage.sha256
+            Fecs_Store-*.AppImage.zsync
+            install.sh

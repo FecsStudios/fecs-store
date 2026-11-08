@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Fecs Store
+Comment=Tienda de aplicaciones: Flatpak, nativas y web
+Exec=fecs-store
+Icon=fecs-store
+Terminal=false
+Categories=System;PackageManager;
+StartupWMClass=fecs-store
