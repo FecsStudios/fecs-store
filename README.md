@@ -1,4 +1,4 @@
-# Fecs Store 2.0
+# Fecs Store 1.1
 
 ## Instalar (usuarios)
 Descarga **`Fecs_Store-X.Y.Z-x86_64.AppImage`** desde [Releases](../../releases/latest), dale doble clic y listo
