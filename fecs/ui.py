@@ -14,7 +14,7 @@ from PyQt6.QtCore import (QAbstractListModel, QEasingCurve, QModelIndex, QObject
 from PyQt6.QtGui import (QBrush, QColor, QDesktopServices, QFont, QFontMetrics, QKeySequence, QLinearGradient,
                          QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QShortcut)
 from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QComboBox, QDialog, QFrame,
-                             QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QListView, QMainWindow, QMessageBox,
+                             QGraphicsOpacityEffect, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListView, QMainWindow, QMessageBox,
                              QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, QScrollArea,
                              QStackedWidget, QStyle, QStyledItemDelegate, QVBoxLayout,
                              QWidget)
@@ -140,6 +140,7 @@ class UpdateWorker(QThread):
 
 class TaskWorker(QThread):
     line = pyqtSignal(str)
+    status = pyqtSignal(str)
     pct = pyqtSignal(int)
     finished_ok = pyqtSignal(bool, str)
 
@@ -149,7 +150,7 @@ class TaskWorker(QThread):
         self.steps = steps
 
     def run(self):
-        ok, msg = self.backend.run_steps(self.steps, self.line.emit, self.pct.emit)
+        ok, msg = self.backend.run_steps(self.steps, self.line.emit, self.pct.emit, self.status.emit)
         try:
             self.backend.refresh_installed()
         except Exception:  # noqa: BLE001
@@ -161,6 +162,7 @@ class TaskManager(QObject):
     """Cola secuencial de tareas (los gestores de paquetes no admiten paralelismo)."""
     changed = pyqtSignal()
     line = pyqtSignal(str)
+    status = pyqtSignal(str)
     pct = pyqtSignal(int)
     task_done = pyqtSignal(str, bool, str)
 
@@ -171,12 +173,15 @@ class TaskManager(QObject):
         self.current: str = ""
         self.worker: TaskWorker | None = None
         self.log: list[str] = []
+        self.auth_cb = None   # la ventana lo usa para pedir la contraseña de sudo cuando hace falta
 
     @property
     def busy(self) -> bool:
         return self.worker is not None
 
     def submit(self, title: str, steps: list[Step]):
+        if self.auth_cb and not self.auth_cb(steps):
+            return
         self.queue.append((title, steps))
         self.changed.emit()
         if not self.busy:
@@ -194,6 +199,7 @@ class TaskManager(QObject):
         w = TaskWorker(self.backend, steps)
         w.line.connect(self._on_line)
         w.pct.connect(self.pct)
+        w.status.connect(self.status)
         w.finished_ok.connect(lambda ok, msg, t=title: self._on_done(t, ok, msg))
         self.worker = w
         self.changed.emit()
@@ -1037,6 +1043,7 @@ class TaskBar(QFrame):
         self.btn_cancel.clicked.connect(tasks.cancel)
         tasks.pct.connect(self.set_pct)
         tasks.line.connect(self.set_msg)
+        tasks.status.connect(self.set_msg)
         tasks.changed.connect(self.update_state)
         self.hide_timer = QTimer(self)
         self.hide_timer.setSingleShot(True)
@@ -1132,6 +1139,7 @@ class StoreWindow(QMainWindow):
         self.icons = IconProvider(self.backend)
         self.ctx = Ctx(self.backend, self.catalog, self.icons)
         self.tasks = TaskManager(self.backend)
+        self.tasks.auth_cb = self._ask_sudo
         self.model = AppModel()
         self.nav = "inicio"
         self.query = ""
@@ -1454,7 +1462,30 @@ class StoreWindow(QMainWindow):
         verb = "Instalando" if action == "install" else "Desinstalando"
         self.tasks.submit(f"{verb} {app.name}", steps)
 
+    def _ask_sudo(self, steps) -> bool:
+        """Sin agente de polkit (XFCE, i3…) la tienda usa sudo y pide la contraseña ella misma."""
+        be = self.backend
+        if not any(st.argv and (st.argv[0] == "sudo" or st.pw_lines) for st in steps) or be.sudo_ready():
+            return True
+        for _ in range(3):
+            pw, ok = QInputDialog.getText(self, "Fecs Store", "Escribe tu contraseña de administrador para continuar:",
+                                          QLineEdit.EchoMode.Password)
+            if not ok:
+                return False
+            good, why = be.check_sudo(pw)
+            if good:
+                return True
+            if why == "nosudo":
+                QMessageBox.warning(self, "Fecs Store", "Tu usuario no tiene permisos de administrador (sudo), "
+                                    "así que no se pueden instalar paquetes del sistema. "
+                                    "Usa las versiones Flatpak o pide acceso de administrador.")
+                return False
+            QMessageBox.warning(self, "Fecs Store", "Contraseña incorrecta. Inténtalo de nuevo.")
+        return False
+
     def _task_done(self, title: str, ok: bool, msg: str):
+        if not ok and msg and msg != "Cancelado":
+            QMessageBox.warning(self, "Fecs Store", f"No se pudo completar «{title}».\n\n{msg}")
         self.taskbar.finished(title, ok, msg)
         self._viewport_update()
 

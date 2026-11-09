@@ -185,7 +185,7 @@ Godot Engine | dev | 🎲 | Motor de videojuegos 2D y 3D | fp=org.godotengine.Go
 Unity Hub | dev | 🎮 | Gestor de proyectos de Unity | n=arch:aur:unityhub | dl=https://unity.com/download | by=Unity Technologies
 Replit | dev | 🔁 | Programa en el navegador con IA | web=https://replit.com | by=Replit
 GitHub | dev | 🐙 | Repositorios y colaboración | web=https://github.com | by=GitHub
-Cisco Packet Tracer | redes | 🌐 | Simulador de redes de Cisco Networking Academy | n=arch:aur:cisco-packet-tracer | dl=https://www.netacad.com/cisco-packet-tracer | by=Cisco | note=Requiere una cuenta gratuita de Cisco Networking Academy. Descarga el instalador (.deb o .tar.gz) del sitio oficial; en Arch el paquete AUR te pedirá ese archivo.
+Cisco Packet Tracer | redes | 🌐 | Simulador de redes de Cisco Networking Academy | dl=https://www.netacad.com/cisco-packet-tracer | by=Cisco | note=Requiere una cuenta gratuita de Cisco Networking Academy: descarga el instalador (.deb o .tar.gz) del sitio oficial. Cisco no permite instalarlo automáticamente.
 GNS3 | redes | 🖧 | Emulador de redes con equipos reales | n=arch:gns3-gui,debian:gns3-gui,fedora:gns3-gui | dl=https://www.gns3.com/software/download | by=GNS3 Project
 Wireshark | redes | 🦈 | Analizador de tráfico de red | fp=org.wireshark.Wireshark | n=arch:wireshark-qt,debian:wireshark,fedora:wireshark,suse:wireshark
 EVE-NG | redes | 🔬 | Laboratorios de redes virtuales | dl=https://www.eve-ng.net/index.php/download/
@@ -246,7 +246,7 @@ Solaar | utiles | 🖱️ | Gestiona dispositivos Logitech | fp=io.github.pwr_so
 Cryptomator | utiles | 🔐 | Cifra tus archivos en la nube | fp=org.cryptomator.Launcher | n=arch:cryptomator
 btop | utiles | 📈 | Monitor de recursos en terminal | n=*:btop
 htop | utiles | 📊 | Monitor de procesos en terminal | n=*:htop
-GeoGebra | educacion | 📐 | Matemáticas dinámicas: álgebra, geometría, cálculo | fp=org.geogebra.GeoGebra | n=arch:aur:geogebra
+GeoGebra | educacion | 📐 | Matemáticas dinámicas: álgebra, geometría, cálculo | fp=org.geogebra.GeoGebra
 Stellarium | educacion | 🔭 | Planetario virtual | fp=org.stellarium.Stellarium | n=*:stellarium
 Anki | educacion | 🧠 | Tarjetas de estudio con repetición espaciada | fp=net.ankiweb.Anki | n=arch:anki
 GNU Octave | educacion | 🧮 | Cálculo numérico compatible con MATLAB | fp=org.octave.Octave | n=*:octave
