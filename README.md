@@ -1,4 +1,4 @@
-# Fecs Store 1.1
+# Fecs Store 2.0
 
 ## Instalar (usuarios)
 Descarga **`Fecs_Store-X.Y.Z-x86_64.AppImage`** desde [Releases](../../releases/latest), dale doble clic y listo
@@ -10,7 +10,16 @@ curl -fsSL https://github.com/FecsStudios/fecs-store/releases/latest/download/in
 Sirve en cualquier distro (Arch/CachyOS, Debian/Ubuntu, Fedora, openSUSE…). Si el sistema no tiene FUSE, el instalador lo detecta y lo resuelve solo.
 Para desinstalar: `curl -fsSL https://github.com/FecsStudios/fecs-store/releases/latest/download/install.sh | bash -s -- --uninstall`
 
-**Se actualiza sola:** al abrir la tienda avisa si hay versión nueva y la instala con un clic.
+**Se actualiza sola:** al abrir la tienda (y cada 6 horas) revisa GitHub. Si hay versión nueva aparece una
+**campanita 🔔 arriba a la derecha**; el usuario pulsa «Actualizar ahora» y la tienda se descarga, se instala y se reinicia sola.
+Funciona con el AppImage y también ejecutando desde el código fuente (python3 main.py).
+
+### Configurar las actualizaciones (una sola vez)
+La tienda necesita saber tu repositorio de GitHub. Hazlo de UNA de estas formas:
+1. Edita en `fecs/updater.py` la línea `REPO = "FecsStudios/fecs-store"` y pon `REPO = "tuusuario/turepositorio"`.
+2. O define la variable `FECS_REPO=tuusuario/turepositorio`.
+3. O, si la copia tiene `.git`, se detecta sola del remoto `origin`.
+(El flujo de GitHub Actions del AppImage lo rellena solo.)
 
 ## Sacar una versión nueva (desarrollador)
 ```bash
@@ -19,6 +28,10 @@ git tag v2.1.0 && git push origin main v2.1.0
 ```
 GitHub Actions compila el AppImage, lo publica en Releases y todos los usuarios reciben el aviso.
 La versión sale de la etiqueta (`v2.1.0`), no hace falta editar nada más.
+
+**Si ejecutas desde el código fuente (sin AppImage):** basta con subir los cambios a GitHub **cambiando el número de
+`__version__` en `fecs/__init__.py`** (por ejemplo a `2.2.0`). Al detectar un número mayor, la campanita avisa y el usuario
+actualiza con un clic (no hace falta crear una Release).
 
 ---
 
@@ -40,6 +53,13 @@ python3 main.py
 ./dev/install-desde-fuente.sh   # opcional: añade «Fecs Store» al menú de aplicaciones
 ```
 Requisitos para instalar: `flatpak` (la tienda puede instalarlo), `pkexec`/polkit para paquetes nativos, y `yay` o `paru` para el AUR.
+
+## Compatibilidad
+Funciona en cualquier escritorio (KDE Plasma, GNOME, XFCE, Cinnamon, i3…): si no hay agente de polkit para pedir la contraseña,
+la tienda usa `sudo` y te la pide ella misma. Reintenta sola si el gestor de paquetes está ocupado, si falla la red o si las listas
+de paquetes están desactualizadas, y cuando algo falla te muestra el motivo real.
+Se encarga de las dependencias: instala Flatpak/Flathub si faltan, `git`, `base-devel` y `yay` para los paquetes del AUR, y si un
+paquete nativo no existe en tu distro prueba solo con la versión Flatpak. Las descargas de Flatpak que se quedan paradas se cortan y se reintentan.
 
 ## Qué incluye
 * ~360 apps curadas (incluye Drift, Concat y toda la suite Craft: ArtCraft Launcher, ArtCraft, FilmCraft, WordCraft…) (juegos, ofimática, video/audio, diseño/3D, desarrollo, redes, internet, educación, utilidades).

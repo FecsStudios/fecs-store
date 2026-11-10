@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Instalador de Fecs Store para cualquier distro Linux (x86_64). Sin root, sin dependencias.
-#   Instalar:     curl -fsSL https://github.com/OWNER/REPO/releases/latest/download/install.sh | bash
-#   Desinstalar:  curl -fsSL https://github.com/OWNER/REPO/releases/latest/download/install.sh | bash -s -- --uninstall
+#   Instalar:     curl -fsSL https://github.com/FecsStudios/fecs-store/releases/latest/download/install.sh | bash
+#   Desinstalar:  curl -fsSL https://github.com/FecsStudios/fecs-store/releases/latest/download/install.sh | bash -s -- --uninstall
 set -euo pipefail
-REPO="${FECS_REPO:-OWNER/REPO}"
+REPO="${FECS_REPO:-FecsStudios/fecs-store}"
 DEST="$HOME/.local/share/fecs-store"
 APPS="$HOME/.local/share/applications"
 ICONS="$HOME/.local/share/icons/hicolor/256x256/apps"

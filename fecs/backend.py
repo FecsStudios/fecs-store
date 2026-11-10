@@ -15,6 +15,7 @@ import fcntl
 import struct
 import termios
 import re
+import select
 import shlex
 import signal
 import shutil
@@ -732,7 +733,7 @@ class Backend:
             el = int(time.time() - start)
             t = f"{el // 60}:{el % 60:02d}"
             if delta > 50 * 1024:
-                on_status(f"Descargando… {_human(delta)}/s · {_human(got)} recibidos · {t}")
+                on_status(f"Descargando… {_human(delta)}/s · {t}")
             elif el > 15:
                 on_status(f"Sin tráfico de red ahora ({t}): instalando o procesando… "
                           f"si dura mucho, tu conexión o el espejo van lentos")
@@ -786,47 +787,71 @@ class Backend:
             threading.Thread(target=self._net_monitor, args=(stop_mon, last_line, on_status, proc, stall, stalled),
                              daemon=True).start()
         tail: list[str] = []
-        buf = b""
+        state = {"buf": b"", "last_emit": 0.0, "last_pct": -2}
         fd = master if master is not None else proc.stdout.fileno()
-        last_emit = 0.0
-        last_pct_sent = -2
+
+        def feed(data: bytes, final: bool = False) -> None:
+            state["buf"] += data
+            parts = re.split(rb"[\r\n]+", state["buf"])
+            state["buf"] = b"" if final else parts.pop()
+            for part in parts:
+                text = _ANSI.sub("", part.decode("utf-8", "replace")).strip()
+                if not text:
+                    continue
+                last_line[0] = time.time()
+                m = pct_re.search(text)
+                is_progress = bool(m) and ("/s" in text or "[" in text)
+                if m and 0 <= int(m.group(1)) <= 100:
+                    on_pct(int(m.group(1)))
+                if is_progress:  # las barras se reescriben muchas veces por segundo: limitar el registro
+                    now = time.time()
+                    pct_now = int(m.group(1))
+                    if now - state["last_emit"] < 1.0 and not (pct_now == 100 and state["last_pct"] != 100):
+                        continue
+                    state["last_emit"], state["last_pct"] = now, pct_now
+                else:
+                    tail.append(text)
+                    del tail[:-60]
+                on_line(text)
+
+        # IMPORTANTE: no se puede esperar a que el pseudo-terminal "se cierre" (EOF/EIO). Si algún proceso hijo
+        # (gpg-agent, dbus, un demonio del instalador...) hereda el terminal y sigue vivo, la lectura se queda
+        # bloqueada para siempre aunque la instalación ya haya terminado: la tienda mostraba "Descargando…"
+        # eternamente. Por eso se lee con tiempo límite y se termina en cuanto el proceso principal acaba.
+        exited_at = 0.0
         try:
             while True:
+                if not exited_at and proc.poll() is not None:
+                    exited_at = time.time()
+                try:
+                    ready, _, _ = select.select([fd], [], [], 0.5)
+                except (OSError, ValueError):
+                    break
+                if not ready:
+                    if proc.poll() is not None:
+                        break      # proceso terminado y sin más salida pendiente
+                    continue
                 try:
                     chunk = os.read(fd, 4096)
                 except OSError:
                     break
                 if not chunk:
                     break
-                buf += chunk
-                parts = re.split(rb"[\r\n]+", buf)
-                buf = parts.pop()
-                for part in parts:
-                    text = _ANSI.sub("", part.decode("utf-8", "replace")).strip()
-                    if not text:
-                        continue
-                    last_line[0] = time.time()
-                    m = pct_re.search(text)
-                    is_progress = bool(m) and ("/s" in text or "[" in text)
-                    if m and 0 <= int(m.group(1)) <= 100:
-                        on_pct(int(m.group(1)))
-                    if is_progress:  # las barras se reescriben muchas veces por segundo: limitar el registro
-                        now = time.time()
-                        pct_now = int(m.group(1))
-                        if now - last_emit < 1.0 and not (pct_now == 100 and last_pct_sent != 100):
-                            continue
-                        last_emit, last_pct_sent = now, pct_now
-                    else:
-                        tail.append(text)
-                        del tail[:-60]
-                    on_line(text)
+                feed(chunk)
+                if exited_at and time.time() - exited_at > 3.0:
+                    break          # el proceso ya acabó y algo sigue escribiendo en el terminal: no esperar más
+            feed(b"", final=True)
         finally:
             if master is not None:
                 try:
                     os.close(master)
                 except OSError:
                     pass
-            rc = proc.wait()
+            try:
+                rc = proc.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                self._kill(proc, own_group)
+                rc = proc.wait()
             stop_mon.set()
             self._proc = None
         return rc, tail

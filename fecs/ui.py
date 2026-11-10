@@ -9,17 +9,17 @@ import hashlib
 import math
 import time
 
-from PyQt6.QtCore import (QAbstractListModel, QEasingCurve, QModelIndex, QObject, QRectF, QSize, Qt,
+from PyQt6.QtCore import (QAbstractListModel, QEasingCurve, QModelIndex, QObject, QPoint, QPointF, QRectF, QSize, Qt,
                           QThread, QTimer, QUrl, QVariantAnimation, pyqtSignal)
 from PyQt6.QtGui import (QBrush, QColor, QDesktopServices, QFont, QFontMetrics, QKeySequence, QLinearGradient,
                          QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QShortcut)
 from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QComboBox, QDialog, QFrame,
                              QGraphicsOpacityEffect, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListView, QMainWindow, QMessageBox,
                              QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, QScrollArea,
-                             QStackedWidget, QStyle, QStyledItemDelegate, QVBoxLayout,
+                             QStackedWidget, QStyle, QStyledItemDelegate, QToolButton, QVBoxLayout,
                              QWidget)
 
-from . import updater
+from . import __version__, updater
 from .backend import Backend, Step
 from .catalog import CATEGORIES, FEATURED, App, Catalog, Source
 
@@ -132,7 +132,7 @@ class UpdateWorker(QThread):
 
     def run(self):
         try:
-            updater.download(self.info, self.pct.emit)
+            updater.apply(self.info, self.pct.emit)
             self.finished_ok.emit(True, "")
         except Exception as e:  # noqa: BLE001
             self.finished_ok.emit(False, str(e))
@@ -1118,6 +1118,134 @@ class LogDialog(QDialog):
 
 
 # --------------------------------------------------------------------------- #
+#  Campanita de actualización
+# --------------------------------------------------------------------------- #
+class BellButton(QToolButton):
+    """Campanita dibujada a mano (sin depender de iconos del sistema) con punto rojo y balanceo al aparecer."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(42, 42)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Hay una nueva actualización de Fecs Store")
+        self._angle = 0.0
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(1100)
+        self._anim.setKeyValueAt(0.0, 0.0)
+        self._anim.setKeyValueAt(0.15, 18.0)
+        self._anim.setKeyValueAt(0.35, -16.0)
+        self._anim.setKeyValueAt(0.55, 11.0)
+        self._anim.setKeyValueAt(0.75, -6.0)
+        self._anim.setKeyValueAt(1.0, 0.0)
+        self._anim.valueChanged.connect(self._on_angle)
+        self._ring_timer = QTimer(self)      # vuelve a balancearse de vez en cuando mientras haya aviso pendiente
+        self._ring_timer.timeout.connect(self.ring)
+        self._ring_timer.start(45000)
+
+    def _on_angle(self, v):
+        self._angle = float(v)
+        self.update()
+
+    def ring(self):
+        if self.isVisible():
+            self._anim.stop()
+            self._anim.start()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        QTimer.singleShot(250, self.ring)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        if self.underMouse() or self.isDown():
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255, 22))
+            p.drawRoundedRect(QRectF(2, 2, w - 4, h - 4), 12, 12)
+        p.save()
+        p.translate(w / 2, 5)                 # el balanceo gira desde el «gancho» de la campana
+        p.rotate(self._angle)
+        p.translate(0, h / 2 - 5)
+        p.scale(1.05, 1.05)
+        body = QPainterPath()
+        body.moveTo(-8, 6)
+        body.cubicTo(-5.5, 4.5, -5.5, 1, -5.5, -2)
+        body.cubicTo(-5.5, -6.5, -3, -8, 0, -8)
+        body.cubicTo(3, -8, 5.5, -6.5, 5.5, -2)
+        body.cubicTo(5.5, 1, 5.5, 4.5, 8, 6)
+        body.closeSubpath()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(C["text"]))
+        p.drawPath(body)
+        p.drawEllipse(QPointF(0, -9), 1.4, 1.4)
+        p.drawEllipse(QPointF(0, 8.2), 2.6, 1.8)
+        p.restore()
+        p.setBrush(QColor(C["bg"]))           # punto rojo con borde del color del fondo
+        p.drawEllipse(QPointF(w - 12, 12), 6.5, 6.5)
+        p.setBrush(QColor(C["danger"]))
+        p.drawEllipse(QPointF(w - 12, 12), 4.6, 4.6)
+
+
+class UpdatePopup(QFrame):
+    """Panel que cuelga de la campanita: avisa de la versión nueva y deja actualizar con un clic."""
+    update_clicked = pyqtSignal()
+    page_clicked = pyqtSignal()
+    later_clicked = pyqtSignal()
+
+    def __init__(self, info: dict, current: str, can_self_update: bool, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setObjectName("updPop")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedWidth(340)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        card = QFrame()
+        card.setObjectName("updCard")
+        card.setStyleSheet(
+            f"QFrame#updCard {{ background: {C['card']}; border: 1px solid {C['accent']}; border-radius: 14px; }}"
+            f"QLabel {{ background: transparent; border: none; }}")
+        outer.addWidget(card)
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(18, 16, 18, 16)
+        lay.setSpacing(8)
+        title = QLabel("🔔  Nueva actualización disponible")
+        title.setStyleSheet("font-size: 15px; font-weight: 800; color: #ffffff;")
+        ver = QLabel(f"Fecs Store <b>{info['version']}</b> &nbsp;·&nbsp; tienes la {current}")
+        ver.setStyleSheet(f"color: {C['muted']}; font-size: 12px;")
+        lay.addWidget(title)
+        lay.addWidget(ver)
+        notes = (info.get("notes") or "").strip()
+        if notes:
+            lines = [ln.strip("-*# \t") for ln in notes.splitlines() if ln.strip()][:5]
+            body = QLabel("\n".join("• " + ln for ln in lines)[:420])
+            body.setWordWrap(True)
+            body.setStyleSheet("color: #c3cbdc; font-size: 12px; padding-top: 4px;")
+            lay.addWidget(body)
+        hint = QLabel("Se descarga e instala sola y la tienda se reinicia al terminar." if can_self_update
+                      else "Esta instalación no se puede actualizar sola: descarga la nueva versión desde GitHub.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {C['muted']}; font-size: 11px; padding-top: 2px;")
+        lay.addWidget(hint)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        later = QPushButton("Más tarde")
+        later.setObjectName("ghostSmall")
+        later.setCursor(Qt.CursorShape.PointingHandCursor)
+        main = QPushButton("Actualizar ahora" if can_self_update else "Abrir descarga")
+        main.setObjectName("primary")
+        main.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.addStretch()
+        row.addWidget(later)
+        row.addWidget(main)
+        lay.addLayout(row)
+        later.clicked.connect(self.later_clicked)
+        later.clicked.connect(self.close)
+        main.clicked.connect(self.update_clicked if can_self_update else self.page_clicked)
+        main.clicked.connect(self.close)
+
+
+# --------------------------------------------------------------------------- #
 #  Ventana principal
 # --------------------------------------------------------------------------- #
 NAV = [
@@ -1154,35 +1282,65 @@ class StoreWindow(QMainWindow):
         self._spawn(self.backend.load_flathub, self._flathub_loaded)
         self.status.setText("Cargando catálogo completo de Flathub…")
         updater.ensure_menu_entry()
-        QTimer.singleShot(4000, lambda: self._spawn(updater.check, self._update_found))
+        self._update_info: dict | None = None
+        QTimer.singleShot(4000, self._check_updates)
+        self._update_timer = QTimer(self)
+        self._update_timer.timeout.connect(self._check_updates)
+        self._update_timer.start(self.UPDATE_EVERY_MS)
 
     # ---------- actualización de la tienda ----------
+    UPDATE_EVERY_MS = 6 * 3600 * 1000     # vuelve a mirar GitHub cada 6 horas mientras la tienda siga abierta
+
+    def _check_updates(self):
+        if self._update_info is None:
+            self._spawn(updater.check, self._update_found)
+
     def _update_found(self, info):
+        if not info or self._update_info is not None:
+            return
+        self._update_info = info
+        self.bell.setToolTip(f"Nueva versión {info['version']} disponible: haz clic para actualizar")
+        self.bell.show()
+        self.status.setText(f"🔔 Hay una nueva versión de Fecs Store ({info['version']}). Haz clic en la campanita.")
+
+    def _open_bell(self):
+        info = self._update_info
         if not info:
             return
-        ver = info["version"]
-        if not (info["url"] and updater.can_self_update()):
-            if QMessageBox.question(self, "Fecs Store", f"Hay una versión nueva ({ver}). ¿Abrir la página de descarga?"
-                                    ) == QMessageBox.StandardButton.Yes:
-                QDesktopServices.openUrl(QUrl(info["page"]))
+        pop = UpdatePopup(info, __version__, bool(info.get("mode") in ("appimage", "source", "git")), self)
+        pop.update_clicked.connect(self._start_update)
+        pop.page_clicked.connect(lambda: QDesktopServices.openUrl(QUrl(info.get("page") or "")))
+        pop.adjustSize()
+        pos = self.bell.mapToGlobal(QPoint(self.bell.width() - pop.width(), self.bell.height() + 6))
+        pop.move(pos)
+        pop.show()
+
+    def _start_update(self):
+        info = self._update_info
+        if not info:
             return
-        notes = info["notes"][:600]
-        box = QMessageBox(self)
-        box.setWindowTitle("Fecs Store")
-        box.setText(f"Hay una versión nueva de Fecs Store: {ver}")
-        box.setInformativeText((notes + "\n\n" if notes else "") + "¿Actualizar ahora? Se reinicia sola al terminar.")
-        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        box.button(QMessageBox.StandardButton.Yes).setText("Actualizar ahora")
-        box.button(QMessageBox.StandardButton.No).setText("Más tarde")
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if self.tasks.busy:
+            QMessageBox.information(self, "Fecs Store", "Hay una instalación en curso. Espera a que termine "
+                                    "y vuelve a pulsar la campanita.")
             return
-        dlg = QProgressDialog(f"Descargando Fecs Store {ver}…", "", 0, 100, self)
+        dlg = QProgressDialog(f"Actualizando Fecs Store a la versión {info['version']}…", "", 0, 100, self)
         dlg.setWindowTitle("Fecs Store")
         dlg.setCancelButton(None)
         dlg.setMinimumDuration(0)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        dlg.setWindowModality(Qt.WindowModality.WindowModal)
         dlg.show()
+
+        def on_pct(v: int):
+            if v < 0:
+                dlg.setRange(0, 0)
+            else:
+                dlg.setRange(0, 100)
+                dlg.setValue(v)
+
         worker = UpdateWorker(info, self)
-        worker.pct.connect(dlg.setValue)
+        worker.pct.connect(on_pct)
         worker.finished_ok.connect(lambda ok, err: self._update_done(dlg, ok, err))
         self._threads.append(worker)
         worker.finished.connect(lambda th=worker: self._reap(th))
@@ -1193,9 +1351,7 @@ class StoreWindow(QMainWindow):
         if not ok:
             QMessageBox.warning(self, "Fecs Store", f"No se pudo actualizar: {err}")
             return
-        path = updater.appimage_path()
-        if path:
-            updater.restart(path)
+        updater.restart()
         QApplication.quit()
 
     # ---------- construcción ----------
@@ -1226,6 +1382,10 @@ class StoreWindow(QMainWindow):
         self._debounce.timeout.connect(self._search_now)
         self.search.textChanged.connect(lambda _t: self._debounce.start(130))
         top.addWidget(self.search)
+        self.bell = BellButton()
+        self.bell.clicked.connect(self._open_bell)
+        self.bell.hide()
+        top.addWidget(self.bell)
         ml.addLayout(top)
 
         self.hero = Hero(self.ctx)

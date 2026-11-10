@@ -20,6 +20,7 @@ class Distro:
 _FAMILY_BY_ID = {
     "arch": "arch", "manjaro": "arch", "endeavouros": "arch", "cachyos": "arch",
     "garuda": "arch", "artix": "arch", "arcolinux": "arch", "steamos": "arch",
+    "quantum": "arch", "quantumlinux": "arch", "blendos": "arch", "archcraft": "arch", "biglinux": "arch",
     "debian": "debian", "ubuntu": "debian", "linuxmint": "debian", "pop": "debian",
     "elementary": "debian", "zorin": "debian", "kali": "debian", "raspbian": "debian",
     "neon": "debian", "mx": "debian", "parrot": "debian", "deepin": "debian",
@@ -55,6 +56,15 @@ def family_from(os_id: str, id_like: str) -> str:
     return "unknown"
 
 
+def family_from_tools() -> str:
+    """Último recurso: si el ID de la distro no se reconoce, usar el gestor de paquetes que exista."""
+    for tool, fam in (("pacman", "arch"), ("apt-get", "debian"), ("dnf", "fedora"),
+                      ("zypper", "suse"), ("apk", "alpine"), ("xbps-install", "void")):
+        if shutil.which(tool):
+            return fam
+    return "unknown"
+
+
 def detect_distro(os_release_path: str = "/etc/os-release") -> Distro:
     data: dict[str, str] = {}
     for path in (os_release_path, "/usr/lib/os-release"):
@@ -67,6 +77,8 @@ def detect_distro(os_release_path: str = "/etc/os-release") -> Distro:
             continue
     os_id = data.get("ID", "unknown").lower()
     family = family_from(os_id, data.get("ID_LIKE", ""))
+    if family == "unknown":
+        family = family_from_tools()
     immutable = os.path.exists("/run/ostree-booted") or data.get("VARIANT_ID", "") in {
         "silverblue", "kinoite", "sericea", "onyx", "coreos"}
     if os_id == "steamos":
